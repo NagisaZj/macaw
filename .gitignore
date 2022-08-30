@@ -1,0 +1,24 @@
+**/*.npy
+**/*.idea
+**/*.pyc
+**/*.DS_Store
+**/*.log
+**/*.png
+**/*.csv
+**/*.zip
+**/*.swp
+**/*ft_local
+data/
+output/
+out_logs/
+.vscode
+.temp
+.ipynb_checkpoints
+macaw_offline_data/
+log/
+rand_param_envs/
+
+
+# bkdevops prebuild
+.bk_pb/
+build.yml

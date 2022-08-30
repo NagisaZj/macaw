@@ -235,7 +235,32 @@ class ReplayBuffer(object):
         f.create_dataset('next_obs', data=self._next_obs[:self._stored_steps], compression='lzf')
         f.create_dataset('discount_factor', data=self._discount_factor)
         f.close()
-    
+
+
+    def add_sample(self, observation, action, reward, terminal,
+                   next_observation, **kwargs):
+
+        self._obs[self._write_location] = observation
+        self._next_obs[self._write_location] = next_observation
+        self._actions[self._write_location] = action
+        self._rewards[self._write_location] = reward
+        self._terminals[self._write_location] = terminal
+        self._terminal_obs[self._write_location] = next_observation
+
+        terminal_factor = self._discount_factor
+        self._terminal_discounts[self._write_location] = terminal_factor
+
+        mc_reward = reward# + self._discount_factor * mc_reward
+        self._mc_rewards[self._write_location] = mc_reward
+
+        self._write_location += 1
+        self._write_location = self._write_location % self._size
+
+        if self._stored_steps < self._size:
+            self._stored_steps += 1
+
+
+
     def add_trajectory(self, trajectory: List[Experience], force: bool = False):
         if self.immutable and not force:
             raise ValueError('Cannot add trajectory to immutable replay buffer')
