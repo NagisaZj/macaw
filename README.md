@@ -24,7 +24,9 @@ The offline data used for MACAW can be found [here](https://drive.google.com/dri
 Run offline meta-training with periodic online evaluations with any of the scripts in `scripts/`. e.g.
     
     $ . scripts/macaw_dir.sh # MACAW training on Cheetah-Direction (Figure 1)
-    $ . scripts/macaw_vel.sh # MACAW training on Cheetah-Velocity (Figure 1)
+    $ CUDA_VISIBLE_DEVICES=6 . scripts/macaw_vel.sh # MACAW training on Cheetah-Velocity (Figure 1)
+
+['handle-pull-side-v2', 'handle-pull-v2', 'lever-pull-v2', 'peg-insert-side-v2', 'pick-place-wall-v2', 'pick-out-of-hole-v2', 'push-back-v2', 'push-v2', 'pick-place-v2', 'plate-slide-v2', 'plate-slide-side-v2', 'plate-slide-back-v2', 'plate-slide-back-side-v2', 'peg-unplug-side-v2', 'soccer-v2', 'stick-push-v2', 'stick-pull-v2', 'push-wall-v2', 'reach-wall-v2', 'shelf-place-v2', 'sweep-into-v2', 'sweep-v2', 'window-open-v2', 'window-close-v2']
     $ . scripts/macaw_quality_ablation.sh # Data quality ablation (Figure 5-left)
     ...
     

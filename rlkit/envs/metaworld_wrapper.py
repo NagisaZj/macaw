@@ -22,6 +22,11 @@ class MetaWorldWrapper(gym.core.Wrapper):
         self.env.set_task(self.train_tasks[self._goal_idx])
         self._goal = self.train_tasks[self._goal_idx]
 
+    def set_task_idx(self, idx):
+        self._goal_idx = idx
+        self.env.set_task(self.train_tasks[self._goal_idx])
+        self._goal = self.train_tasks[self._goal_idx]
+
     def get_all_task_idx(self):
         return range(len(self.train_tasks))
 

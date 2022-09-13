@@ -15,6 +15,7 @@ out_logs/
 .temp
 .ipynb_checkpoints
 macaw_offline_data/
+log_backup/
 log/
 rand_param_envs/
 

@@ -164,7 +164,7 @@ class SparsePointEnv(PointEnv):
      NOTE that `step()` returns the dense reward because this is used during meta-training
      the algorithm should call `sparsify_rewards()` to get the sparse rewards
      '''
-    def __init__(self, randomize_tasks=False, n_tasks=2, max_episode_steps=200, goal_radius=0.05, goal_idx=None):
+    def __init__(self, randomize_tasks=False, n_tasks=100, max_episode_steps=20, goal_radius=0.2, goal_idx=None):
         super().__init__(randomize_tasks, n_tasks, max_episode_steps)
         self.goal_radius = goal_radius
 
@@ -180,10 +180,17 @@ class SparsePointEnv(PointEnv):
         goals = goals.tolist()
 
         self.goals = goals
+        self.tasks = goals
         if isinstance(goal_idx, int):
             self.reset_task(goal_idx)
         else:
             self.reset_task(0)
+
+    def set_task_idx(self, idx):
+        ''' reset goal AND reset the agent '''
+        self._goal_idx = idx
+        self._goal = self.goals[idx]
+        self.reset()
 
     def sparsify_rewards(self, r):
         ''' zero out rewards when outside the goal radius '''

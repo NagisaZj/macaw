@@ -12,6 +12,11 @@ import json
 from src.envs import HalfCheetahDirEnv, HalfCheetahVelEnv, AntDirEnv, AntGoalEnv, HumanoidDirEnv, WalkerRandParamsWrappedEnv, ML45Env
 from src.macaw import MACAW
 from src.args import get_args
+from rlkit.envs import ENVS
+from rlkit.envs.wrappers import NormalizedBoxEnv
+
+import  metaworld,random,gym,gym.wrappers
+from rlkit.envs.metaworld_wrapper import MetaWorldWrapper
 
     
 
@@ -62,16 +67,40 @@ def run(args: argparse.Namespace, instance_idx: int = 0):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
 
-    if task_config.env == 'ant_dir':
-        env = AntDirEnv(tasks, args.n_tasks, include_goal = args.include_goal or args.multitask)
-    elif task_config.env == 'cheetah_dir':
-        env = HalfCheetahDirEnv(tasks, include_goal = args.include_goal or args.multitask)
-    elif task_config.env == 'cheetah_vel':
-        env = HalfCheetahVelEnv(tasks, include_goal = args.include_goal or args.multitask, one_hot_goal=args.one_hot_goal or args.multitask)
-    elif task_config.env == 'walker_params':
-        env = WalkerRandParamsWrappedEnv(tasks, args.n_tasks, include_goal = args.include_goal or args.multitask)
+    # if task_config.env == 'ant_dir':
+    #     env = AntDirEnv(tasks, args.n_tasks, include_goal = args.include_goal or args.multitask)
+    # elif task_config.env == 'cheetah_dir':
+    #     env = HalfCheetahDirEnv(tasks, include_goal = args.include_goal or args.multitask)
+    # elif task_config.env == 'cheetah_vel':
+    #     env = HalfCheetahVelEnv(tasks, include_goal = args.include_goal or args.multitask, one_hot_goal=args.one_hot_goal or args.multitask)
+    # elif task_config.env == 'walker_params':
+    #     env = WalkerRandParamsWrappedEnv(tasks, args.n_tasks, include_goal = args.include_goal or args.multitask)
+    # else:
+    #     raise RuntimeError(f'Invalid env name {task_config.env}')
+
+
+    if 'v2' not in task_config.env:
+        env = NormalizedBoxEnv(ENVS[task_config.env]())
+        if 'cheetah' in task_config.env:
+            env._max_episode_steps = 200
     else:
-        raise RuntimeError(f'Invalid env name {task_config.env}')
+        ml1 = metaworld.ML1(task_config.env, seed=1337)  # Construct the benchmark, sampling tasks
+
+        env = ml1.train_classes[task_config.env]()  # Create an environment with task
+        # print(ml1.train_tasks)
+        env.train_tasks = ml1.train_tasks
+        task = random.choice(ml1.train_tasks)
+        env.set_task(task)
+
+        tasks = list(range(len(env.train_tasks)))
+        # env = gym.wrappers.TimeLimit(gym.wrappers.ClipAction(MetaWorldWrapper(env)), 500)
+        env = gym.wrappers.TimeLimit(gym.wrappers.ClipAction(env), 500)
+        env=MetaWorldWrapper(env)
+        env.tasks = tasks
+        env._max_episode_steps = 500
+
+
+
 
     if args.episode_length is not None:
         env._max_episode_steps = args.episode_length

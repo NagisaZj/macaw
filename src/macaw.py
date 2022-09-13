@@ -26,6 +26,9 @@ from torch.utils.tensorboard import SummaryWriter
 from src.nn import MLP, CVAE
 from src.utils import ReplayBuffer, Experience, argmax, kld, RunningEstimator
 import glob
+from numpy.random import default_rng
+
+rng = default_rng()
 
 def env_action_dim(env):
     action_space = env.action_space.shape
@@ -166,171 +169,137 @@ class MACAW(object):
         load_inner_buffers = has_train_buffers and args.load_inner_buffer
         load_outer_buffers = has_train_buffers and args.load_outer_buffer
         load_test_buffers = has_test_buffers and args.load_inner_buffer # we want the test adaptation data the same as train
+        # task_config.train_tasks = np.arange(50)
+        # task_config.test_tasks = np.arange(50)
 
-        inner_buffers = [task_config.train_buffer_paths.format(idx) if load_inner_buffers else None for idx in task_config.train_tasks]
-        outer_buffers = [task_config.train_buffer_paths.format(idx) if load_outer_buffers else None for idx in task_config.train_tasks]
-        test_buffers = [task_config.test_buffer_paths.format(idx) if load_test_buffers else None for idx in task_config.test_tasks]
+        self.num_tasks = 50
+        rng = default_rng()
+        train_tasks = np.sort(rng.choice(self.num_tasks, size=int(0.8*self.num_tasks), replace=False))
+        test_tasks = list(set(range(self.num_tasks)).difference(train_tasks))
+        train_tasks = list(train_tasks)
+        self.train_tasks =train_tasks
+        self.test_tasks = test_tasks
+        inner_buffers = [task_config.train_buffer_paths.format(idx) if load_inner_buffers else None for idx in self.train_tasks]
+        outer_buffers = [task_config.train_buffer_paths.format(idx) if load_outer_buffers else None for idx in self.train_tasks]
+        test_buffers = [task_config.test_buffer_paths.format(idx) if load_test_buffers else None for idx in self.test_tasks]
         
-        self._test_buffers = [ReplayBuffer(args.inner_buffer_size, self._observation_dim, env_action_dim(self._env),
+        self._test_buffers = [ReplayBuffer(1000000, self._observation_dim, env_action_dim(self._env),
                                               discount_factor=discount_factor,
-                                              immutable=test_buffers[i] is not None, load_from=test_buffers[i], silent=silent, skip=args.inner_buffer_skip,
-                                              stream_to_disk=args.from_disk, mode=args.buffer_mode)
-                               for i, task in enumerate(task_config.test_tasks)]
+                                              immutable=False, load_from=None, silent=silent, skip=args.inner_buffer_skip,
+                                              stream_to_disk=args.from_disk, mode=args.buffer_mode)]*self.num_tasks
 
         if not self._args.online_ft:
-            self._inner_buffers = [ReplayBuffer(args.inner_buffer_size, self._observation_dim, env_action_dim(self._env),
+            self._inner_buffers = [ReplayBuffer(1000000, self._observation_dim, env_action_dim(self._env),
                                                    discount_factor=discount_factor,
-                                                   immutable=args.offline or args.offline_inner, load_from=inner_buffers[i], silent=silent, skip=args.inner_buffer_skip,
-                                                   stream_to_disk=args.from_disk, mode=args.buffer_mode)
-                                   for i, task in enumerate(task_config.train_tasks)]
+                                              immutable=False, load_from=None, silent=silent, skip=args.inner_buffer_skip,
+                                                   stream_to_disk=args.from_disk, mode=args.buffer_mode)]*self.num_tasks
 
             if args.offline and args.load_inner_buffer and args.load_outer_buffer and (args.replay_buffer_size == args.inner_buffer_size) and (args.buffer_skip == args.inner_buffer_skip) and args.buffer_mode == 'end':
                 self._outer_buffers = self._inner_buffers
             else:
-                self._outer_buffers = [ReplayBuffer(args.replay_buffer_size, self._observation_dim, env_action_dim(self._env),
-                                                       discount_factor=discount_factor, immutable=args.offline or args.offline_outer,
-                                                       load_from=outer_buffers[i], silent=silent, skip=args.buffer_skip,
-                                                       stream_to_disk=args.from_disk)
-                                       for i, task in enumerate(task_config.train_tasks)]
+                self._outer_buffers = [ReplayBuffer(1000000, self._observation_dim, env_action_dim(self._env),
+                                                       discount_factor=discount_factor,
+                                              immutable=False, load_from=None, silent=silent, skip=args.buffer_skip,
+                                                       stream_to_disk=args.from_disk)]*self.num_tasks
 
+
+
+
+        ####
         #
         #
-        # obs_train_lst = []
-        # action_train_lst = []
-        # reward_train_lst = []
-        # next_obs_train_lst = []
-        # terminal_train_lst = []
-        # task_train_lst = []
-        # obs_eval_lst = []
-        # action_eval_lst = []
-        # reward_eval_lst = []
-        # next_obs_eval_lst = []
-        # terminal_eval_lst = []
-        # task_eval_lst = []
-        #
-        # train_trj_paths = []
-        # eval_trj_paths = []
-        #
-        # self.n_trj = 45
-        # self.train_epoch = self.eval_epoch = None
-        # self.data_dir='reach-v2'
-        #
-        # for n in range(self.n_trj):
-        #     if self.train_epoch is None:
-        #         train_trj_paths += glob.glob(
-        #             os.path.join("/data2/zj/Offline-MetaRL/data/reach-v2",self.data_dir, "goal_idx*", "trj_evalsample%d_step*.npy" % (n)))
-        #     else:
-        #         train_trj_paths += glob.glob(
-        #             os.path.join("/data2/zj/Offline-MetaRL/data/reach-v2",self.data_dir, "goal_idx*", "trj_evalsample%d_step%d.npy" % (n, self.train_epoch)))
-        #     # print("trj_evalsample%d_step%d.npy" % (n, self.train_epoch))
-        #     if self.eval_epoch is None:
-        #         eval_trj_paths += glob.glob(
-        #             os.path.join("/data2/zj/Offline-MetaRL/data/reach-v2",self.data_dir, "goal_idx*", "trj_evalsample%d_step*.npy" % (n)))
-        #     else:
-        #         eval_trj_paths += glob.glob(
-        #             os.path.join("/data2/zj/Offline-MetaRL/data/reach-v2",self.data_dir, "goal_idx*", "trj_evalsample%d_step%d.npy" % (n, self.eval_epoch)))
-        #
-        # train_paths = [train_trj_path for train_trj_path in train_trj_paths if
-        #                int(train_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.train_tasks]
-        # train_task_idxs = [int(train_trj_path.split('/')[-2].split('goal_idx')[-1]) for train_trj_path in
-        #                    train_trj_paths if
-        #                    int(train_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.train_tasks]
-        # eval_paths = [eval_trj_path for eval_trj_path in eval_trj_paths if
-        #               int(eval_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.eval_tasks]
-        # eval_task_idxs = [int(eval_trj_path.split('/')[-2].split('goal_idx')[-1]) for eval_trj_path in eval_trj_paths if
-        #                   int(eval_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.eval_tasks]
-        #
-        #
-        # for train_path, train_task_idx in zip(train_paths, train_task_idxs):
-        #     trj_npy = np.load(train_path, allow_pickle=True)
-        #     obs_train_lst += list(trj_npy[:, 0])
-        #     action_train_lst += list(trj_npy[:, 1])
-        #     reward_train_lst += list(trj_npy[:, 2])
-        #     next_obs_train_lst += list(trj_npy[:, 3])
-        #     terminal = [0 for _ in range(trj_npy.shape[0])]
-        #     terminal[-1] = 1
-        #     terminal_train_lst += terminal
-        #     task_train = [train_task_idx for _ in range(trj_npy.shape[0])]
-        #     task_train_lst += task_train
-        #     print(train_path, train_task_idx, len(obs_train_lst))
-        # for eval_path, eval_task_idx in zip(eval_paths, eval_task_idxs):
-        #     trj_npy = np.load(eval_path, allow_pickle=True)
-        #     obs_eval_lst += list(trj_npy[:, 0])
-        #     action_eval_lst += list(trj_npy[:, 1])
-        #     reward_eval_lst += list(trj_npy[:, 2])
-        #     next_obs_eval_lst += list(trj_npy[:, 3])
-        #     terminal = [0 for _ in range(trj_npy.shape[0])]
-        #     terminal[-1] = 1
-        #     terminal_eval_lst += terminal
-        #     task_eval = [eval_task_idx for _ in range(trj_npy.shape[0])]
-        #     task_eval_lst += task_eval
-        #     print(eval_path, eval_task_idx, len(obs_eval_lst))
-        #
-        # # load training buffer
-        # for i, (
-        #         task_train,
-        #         obs,
-        #         action,
-        #         reward,
-        #         next_obs,
-        #         terminal,
-        # ) in enumerate(zip(
-        #     task_train_lst,
-        #     obs_train_lst,
-        #     action_train_lst,
-        #     reward_train_lst,
-        #     next_obs_train_lst,
-        #     terminal_train_lst,
-        # )):
-        #     self._inner_buffers[task_train].add_sample(
-        #         obs,
-        #         action,
-        #         reward,
-        #         terminal,
-        #         next_obs,
-        #         **{'env_info': {}},
-        #     )
-        #     self._outer_buffers[task_train].add_sample(
-        #         obs,
-        #         action,
-        #         reward,
-        #         terminal,
-        #         next_obs,
-        #         **{'env_info': {}},
-        #     )
-        #
-        # for i, (
-        #         task_eval,
-        #         obs,
-        #         action,
-        #         reward,
-        #         next_obs,
-        #         terminal,
-        # ) in enumerate(zip(
-        #     task_eval_lst,
-        #     obs_eval_lst,
-        #     action_eval_lst,
-        #     reward_eval_lst,
-        #     next_obs_eval_lst,
-        #     terminal_eval_lst,
-        # )):
-        #     self._inner_buffers[task_eval].add_sample(
-        #         obs,
-        #         action,
-        #         reward,
-        #         terminal,
-        #         next_obs,
-        #         **{'env_info': {}},
-        #     )
-        #     self._outer_buffers[task_eval].add_sample(
-        #         obs,
-        #         action,
-        #         reward,
-        #         terminal,
-        #         next_obs,
-        #         **{'env_info': {}},
-        #     )
-        #
+        for t in range(self.num_tasks):
+            obs_train_lst = []
+            action_train_lst = []
+            reward_train_lst = []
+            next_obs_train_lst = []
+            terminal_train_lst = []
+            task_train_lst = []
+            obs_eval_lst = []
+            action_eval_lst = []
+            reward_eval_lst = []
+            next_obs_eval_lst = []
+            terminal_eval_lst = []
+            task_eval_lst = []
+
+            train_trj_paths = []
+            eval_trj_paths = []
+
+            self.n_trj = 45
+            self.train_epoch = self.eval_epoch = 49500 # 49500
+            self.data_dir=task_config.env+'2'
+            # print(self.n_trj,self.train_epoch,self.data_dir)
+
+            for n in range(self.n_trj):
+                train_trj_paths.append("/data2/zj/Offline-MetaRL/data/"+self.data_dir+ "/goal_idx%d/"%t+ "trj_evalsample%d_step%d.npy" % (n, self.train_epoch))
+                # print("trj_evalsample%d_step%d.npy" % (n, self.train_epoch))
+            # print(train_trj_paths)
+            # train_paths = [train_trj_path for train_trj_path in train_trj_paths if
+            #                int(train_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.train_tasks]
+            # train_task_idxs = [int(train_trj_path.split('/')[-2].split('goal_idx')[-1]) for train_trj_path in
+            #                    train_trj_paths if
+            #                    int(train_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.train_tasks]
+            # eval_paths = [eval_trj_path for eval_trj_path in eval_trj_paths if
+            #               int(eval_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.eval_tasks]
+            # eval_task_idxs = [int(eval_trj_path.split('/')[-2].split('goal_idx')[-1]) for eval_trj_path in eval_trj_paths if
+            #                   int(eval_trj_path.split('/')[-2].split('goal_idx')[-1]) in self.eval_tasks]
+
+            train_paths = train_trj_paths
+            train_task_idxs = np.arange(50)
+            # print('ttttt',train_paths)
+            for train_path in train_paths:
+                # print(train_path)
+                trj_npy = np.load(train_path, allow_pickle=True)
+                obs_train_lst += list(trj_npy[:, 0])
+                action_train_lst += list(trj_npy[:, 1])
+                reward_train_lst += list(trj_npy[:, 2])
+                next_obs_train_lst += list(trj_npy[:, 3])
+                terminal = [0 for _ in range(trj_npy.shape[0])]
+                terminal[-1] = 1
+                terminal_train_lst += terminal
+
+
+            # load training buffer
+            for i, (
+                    obs,
+                    action,
+                    reward,
+                    next_obs,
+                    terminal,
+            ) in enumerate(zip(
+                obs_train_lst,
+                action_train_lst,
+                reward_train_lst,
+                next_obs_train_lst,
+                terminal_train_lst,
+            )):
+                self._inner_buffers[t].add_sample(
+                    obs,
+                    action,
+                    reward,
+                    terminal,
+                    next_obs,
+                    **{'env_info': {}},
+                )
+                self._outer_buffers[t].add_sample(
+                    obs,
+                    action,
+                    reward,
+                    terminal,
+                    next_obs,
+                    **{'env_info': {}},
+                )
+                self._test_buffers[t].add_sample(
+                    obs,
+                    action,
+                    reward,
+                    terminal,
+                    next_obs,
+                    **{'env_info': {}},
+                )
+
+
+
 
         self._training_iterations = training_iterations
         if self._policy_lrs is None:
@@ -556,13 +525,14 @@ class MACAW(object):
             param_target[1].data = self._args.target_vf_alpha * param_target[1].data + (1 - self._args.target_vf_alpha) * param_source[1].data
 
     def eval_multitask(self, train_step_idx: int, writer: SummaryWriter):
-        rewards = np.full((len(self.task_config.test_tasks), self._args.eval_maml_steps+1), float('nan'))
+        rewards = np.full((len(self.test_tasks), self._args.eval_maml_steps+1), float('nan'))
         trajectories, successes = [], []
 
         log_steps = [1, 5, 20]
         reward_dict = defaultdict(list)
         success_dict = defaultdict(list)
-        for i, (test_task_idx, test_buffer) in enumerate(zip(self.task_config.test_tasks, self._test_buffers)):
+        for i, (test_task_idx,_) in enumerate(zip(self.test_tasks, self._test_buffers)):
+            test_buffer = self._test_buffers[test_task_idx]
             self._env.set_task_idx(test_task_idx)
 
             if self._args.eval:
@@ -613,16 +583,17 @@ class MACAW(object):
 
 
     def eval_macaw(self, train_step_idx: int, writer: SummaryWriter, ft: str = 'offline',
-                   ft_steps: int = 5, burn_in: int = 25, steps_per_rollout: int = 1, log_path: str = None):
+                   ft_steps: int = 10, burn_in: int = 0, steps_per_rollout: int = 100, log_path: str = None):
         if ft == 'offline':
             ft_steps = 0
             burn_in = 0
         else:
             print(f'Beginning fine-tuning for {ft_steps} steps, including {burn_in} of burn in.')
         trajectories, successes = [], []
-        rewards = np.full((len(self.task_config.test_tasks), 2 + ft_steps), float('nan'))
-        successes = np.full((len(self.task_config.test_tasks), 2 + ft_steps), float('nan'))
-        for i, (test_task_idx, test_buffer) in enumerate(zip(self.task_config.test_tasks[::-1], self._test_buffers[::-1])):
+        rewards = np.full((len(self.test_tasks), 2 + ft_steps), float('nan'))
+        successes = np.full((len(self.test_tasks), 2 + ft_steps), float('nan'))
+        for i, (test_task_idx, _) in enumerate(zip(self.test_tasks[::-1], self._test_buffers[::-1])):
+            test_buffer = self._test_buffers[test_task_idx]
             self._env.set_task_idx(test_task_idx)
             if ft == 'online':
                 print(f'Beginning fine-tuning on task {test_task_idx}')
@@ -645,20 +616,20 @@ class MACAW(object):
             DEBUG('******************************************* EVAL **********************************', self._args.debug)
             opt = O.SGD([{'params': p, 'lr': None} for p in value_function.adaptation_parameters()])
             with higher.innerloop_ctx(value_function, opt, override={'lr': [F.softplus(l) for l in self._value_lrs]}) as (f_value_function, diff_value_opt):
-                if not self._args.imitation:
-                    loss, _, _, _ = self.value_function_loss_on_batch(f_value_function, value_batch, task_idx=test_task_idx, inner=True, target=vf_target)
+                # if not self._args.imitation:
+                    # loss, _, _, _ = self.value_function_loss_on_batch(f_value_function, value_batch, task_idx=test_task_idx, inner=True, target=vf_target)
                     # diff_value_opt.step(loss)
 
                     # Soft update target value function parameters
-                    self.soft_update(f_value_function, vf_target)
+                    # self.soft_update(f_value_function, vf_target)
 
                 policy = deepcopy(self._adaptation_policy)
                 policy_opt = O.SGD([{'params': p, 'lr': None} for p in policy.adaptation_parameters()])
                 with higher.innerloop_ctx(policy, policy_opt, override={'lr': [F.softplus(l) for l in self._policy_lrs]}) as (f_policy, diff_policy_opt):
-                    if self._args.imitation:
-                        loss = self.imitation_loss_on_batch(f_policy, policy_batch, None, inner=True)
-                    else:
-                        loss, _, _, _ = self.adaptation_policy_loss_on_batch(f_policy, None, f_value_function, policy_batch, test_task_idx, inner=True)
+                    # if self._args.imitation:
+                    #     loss = self.imitation_loss_on_batch(f_policy, policy_batch, None, inner=True)
+                    # else:
+                    #     loss, _, _, _ = self.adaptation_policy_loss_on_batch(f_policy, None, f_value_function, policy_batch, test_task_idx, inner=True)
                     # diff_policy_opt.step(loss)
 
                     adapted_trajectory, adapted_reward, success = self._rollout_policy(f_policy, self._env, sample_mode=True, render=self._args.render)
@@ -788,12 +759,14 @@ class MACAW(object):
         train_rewards = []
         rollouts = []
         successes = []
-        if self._args.task_batch_size is not None and len(self.task_config.train_tasks) > self._args.task_batch_size:
-            tasks = random.sample(self.task_config.train_tasks, self._args.task_batch_size)
+        if self._args.task_batch_size is not None and len(self.train_tasks) > self._args.task_batch_size:
+            tasks = random.sample(self.train_tasks, self._args.task_batch_size)
         else:
-            tasks = self.task_config.train_tasks
+            tasks = self.train_tasks
 
-        for i, (train_task_idx, inner_buffer, outer_buffer) in enumerate(zip(self.task_config.train_tasks, self._inner_buffers, self._outer_buffers)):
+        for i, (train_task_idx,_,_) in enumerate(zip(self.train_tasks, self._inner_buffers, self._outer_buffers)):
+            inner_buffer = self._inner_buffers[train_task_idx]
+            outer_buffer = self._outer_buffers[train_task_idx]
             DEBUG(f'**************** TASK IDX {train_task_idx} ***********', self._args.debug)
 
             # Only train on the randomly selected tasks for this iteration
@@ -830,7 +803,7 @@ class MACAW(object):
             if self._args.multitask:
                 vf_target = self._value_function
                 meta_value_function_loss, value, mc, mc_std = self.value_function_loss_on_batch(self._value_function, meta_batch, task_idx=train_task_idx, target=vf_target)
-                total_vf_loss = meta_value_function_loss / len(self.task_config.train_tasks)
+                total_vf_loss = meta_value_function_loss / len(self.train_tasks)
                 total_vf_loss.backward()
 
                 outer_values.append(value.item())
@@ -840,7 +813,7 @@ class MACAW(object):
 
                 meta_policy_loss, outer_adv, outer_weights_, _ = self.adaptation_policy_loss_on_batch(self._adaptation_policy, None,
                                                                                                       self._value_function, policy_meta_batch, train_task_idx)
-                (meta_policy_loss / len(self.task_config.train_tasks)).backward()
+                (meta_policy_loss / len(self.train_tasks)).backward()
                 
                 outer_weights.append(outer_weights_.mean().item())
                 outer_advantages.append(outer_adv.item())
@@ -884,7 +857,7 @@ class MACAW(object):
                             # Collect grads for the value function update in the outer loop [L14],
                             #  which is not actually performed here
                             meta_value_function_loss, value, mc, mc_std = self.value_function_loss_on_batch(f_value_function, meta_batch, task_idx=train_task_idx, target=vf_target)
-                            total_vf_loss = meta_value_function_loss / len(self.task_config.train_tasks)
+                            total_vf_loss = meta_value_function_loss / len(self.train_tasks)
                             if self._args.value_reg > 0:
                                 total_vf_loss = total_vf_loss + self._args.value_reg * self._value_function(value_batch[:,:self._observation_dim]).pow(2).mean()
                             total_vf_loss.backward()
@@ -929,7 +902,7 @@ class MACAW(object):
                             outer_weights.append(outer_weights_.mean().item())
                             outer_advantages.append(outer_adv.item())
 
-                        (meta_policy_loss / len(self.task_config.train_tasks)).backward()
+                        (meta_policy_loss / len(self.train_tasks)).backward()
                         meta_policy_losses.append(meta_policy_loss.item())
                         ##################################################################################################
 
@@ -1057,8 +1030,8 @@ class MACAW(object):
                 print('Gathering training task trajectories...')
                 for i,(inner_buffer,outer_buffer) in enumerate(zip(self._inner_buffers, self._outer_buffers)):
                     while inner_buffer._stored_steps < self._args.initial_interacts:
-                        task_idx = self.task_config.train_tasks[i]
-                        self._env.set_task_idx(self.task_config.train_tasks[i])
+                        task_idx = self.train_tasks[i]
+                        self._env.set_task_idx(self.train_tasks[i])
                         if self._args.render_exploration:
                             print_(f'Task {task_idx}, trajectory {j}', self._silent)
                         trajectory, reward, success = self._rollout_policy(behavior_policy, self._env, random=self._args.random)
@@ -1073,7 +1046,7 @@ class MACAW(object):
             if not self._args.load_inner_buffer:
                 for i, test_buffer in enumerate(self._test_buffers):
                     while test_buffer._stored_steps < self._args.initial_test_interacts:
-                        task_idx = self.task_config.test_tasks[i]
+                        task_idx = self.test_tasks[i]
                         self._env.set_task_idx(task_idx)
                         random_trajectory, _, _ = self._rollout_policy(behavior_policy, self._env, random=self._args.random)
                         test_buffer.add_trajectory(random_trajectory, force=True)
@@ -1087,6 +1060,8 @@ class MACAW(object):
         rewards = []
         successes = []
         reward_count = 0
+        save_rewards = []
+        save_successes = []
         for t in range(self._training_iterations):
             # print(t)
             rollouts, test_rewards, train_rewards, value, policy, vfs, success = self.train_step(t, summary_writer)
@@ -1097,7 +1072,7 @@ class MACAW(object):
                     print_('', self._silent)
                     print_(f'Step {t} Rewards:', self._silent)
                     for idx, r in enumerate(test_rewards):
-                        print_(f'Task {self.task_config.test_tasks[idx]}: {r}', self._silent)
+                        print_(f'Task {self.test_tasks[idx]}: {r}', self._silent)
                     print_(f'MEAN TEST REWARD: {np.mean(test_rewards)}', self._silent)
                     print_(f'Mean Value Function Outer Loss: {np.mean(value)}', self._silent)
                     print_(f'Mean Policy Outer Loss: {np.mean(policy)}', self._silent)
@@ -1124,6 +1099,10 @@ class MACAW(object):
 
             if len(test_rewards):
                 summary_writer.add_scalar(f'Reward_Test/Mean', np.mean(test_rewards), t)
+                save_rewards.append(np.mean(test_rewards))
+                save_successes.append(np.mean(successes))
+                np.save(self.log_path+'/reward.npy',np.array(save_rewards))
+                np.save(self.log_path+'/success.npy',np.array(save_successes))
             if len(train_rewards):
                 summary_writer.add_scalar(f'Reward_Train/Mean', np.mean(train_rewards), t)
                 
