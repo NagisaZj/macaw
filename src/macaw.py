@@ -1062,6 +1062,7 @@ class MACAW(object):
         reward_count = 0
         save_rewards = []
         save_successes = []
+        save_train_rewards = []
         for t in range(self._training_iterations):
             # print(t)
             rollouts, test_rewards, train_rewards, value, policy, vfs, success = self.train_step(t, summary_writer)
@@ -1105,6 +1106,8 @@ class MACAW(object):
                 np.save(self.log_path+'/success.npy',np.array(save_successes))
             if len(train_rewards):
                 summary_writer.add_scalar(f'Reward_Train/Mean', np.mean(train_rewards), t)
+                save_train_rewards.append(np.mean(train_rewards))
+                np.save(self.log_path+'/train_reward.npy',np.array(save_train_rewards))
                 
                 if self._args.target_reward is not None:
                     if np.mean(train_rewards) > self._args.target_reward:
